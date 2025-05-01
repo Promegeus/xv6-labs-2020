@@ -127,6 +127,8 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  p->trace_mask = 0;  // 创建新进程时，系统调用跟踪掩码设为0
+
   return p;
 }
 
@@ -296,6 +298,8 @@ fork(void)
   np->state = RUNNABLE;
 
   release(&np->lock);
+
+  np->trace_mask = p->trace_mask;   // 子进程继承父进程的系统调用跟踪掩码
 
   return pid;
 }
@@ -691,5 +695,21 @@ procdump(void)
       state = "???";
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
+  }
+}
+
+
+
+// 统计处于活动状态的进程数量
+void
+my_procnum(uint64* dst)
+{
+  *dst = 0;
+  struct proc* p;
+  // 在本文件中有一个进程表 struct proc proc[NPROC] 记录了所有进程
+  for (p = proc; p < &proc[NPROC]; p++)
+  {
+    if (p->state != UNUSED)
+      (*dst)++;
   }
 }

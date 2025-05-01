@@ -103,4 +103,5 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  uint64 trace_mask;           // trace系统调用的参数，用来存储 系统调用跟踪掩码，即表示哪些系统调用需要被跟踪
 };

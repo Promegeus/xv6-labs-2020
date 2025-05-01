@@ -3,6 +3,9 @@
 #include "kernel/stat.h"
 #include "user/user.h"
 
+
+// eg: $trace 32 grep hello README
+
 int
 main(int argc, char *argv[])
 {

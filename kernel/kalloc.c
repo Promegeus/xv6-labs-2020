@@ -80,3 +80,20 @@ kalloc(void)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
 }
+
+
+// 获取空闲内存
+// 遍历全局空闲内存链表，累加每一个空闲页的大小
+void my_freebytes(uint64* dst)  // dst: 空闲内存的字节数
+{
+  *dst = 0;
+  struct run* p = kmem.freelist;  // 链表节点为空闲页，next指向下一个空闲页
+
+  acquire(&kmem.lock);  // 加锁保证线程安全
+  while (p)
+  {
+    *dst += PGSIZE;   // 统计空闲字节数
+    p = p->next;
+  }
+  release(&kmem.lock);
+}

@@ -6,6 +6,7 @@
 #include "memlayout.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "sysinfo.h"
 
 uint64
 sys_exit(void)
@@ -94,4 +95,40 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+// 实现trace系统调用
+uint64
+sys_trace(void)
+{
+  int mask;   // 保存用户传入系统调用的参数
+
+  // argint 是 用来从用户传入的系统调用参数中 提取整数值的函数
+  // argint 第一个参数 0 表示“取第 0 个参数”
+  if(argint(0, &mask) < 0)
+    return -1;
+
+  // myproc() 用于获取当前进程的PCB
+  myproc()->trace_mask = mask;
+  return 0;
+}
+
+// 收集系统信息
+// 获取到信息后的sysinfo结构体是在内核空间的，要把他拷贝到用户空间进程的内存中
+uint64
+sys_sysinfo(void)
+{
+  struct sysinfo info;
+  my_freebytes(&info.freemem);  // 获取空闲内存数量
+  my_procnum(&info.nproc);      // 获取进程数量
+
+  // 获取用户虚拟地址
+  uint64 dstaddr;
+  argaddr(0, &dstaddr);
+
+  // 从内核空间拷贝数据到用户空间 (把内核空间的sysinfo结构体的数据复制过去)
+  if (copyout(myproc()->pagetable, dstaddr, (char*)&info, sizeof(info)) < 0)
+    return -1;
+  
+  return 0;
 }
