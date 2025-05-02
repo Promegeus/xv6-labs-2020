@@ -160,8 +160,8 @@ int             uartgetc(void);
 // vm.c
 void            kvminit(void);
 void            kvminithart(void);
-uint64          kvmpa(uint64);
-void            kvmmap(uint64, uint64, uint64, int);
+uint64          kvmpa(pagetable_t, uint64);
+void            kvmmap(pagetable_t, uint64, uint64, uint64, int);
 int             mappages(pagetable_t, uint64, uint64, uint64, int);
 pagetable_t     uvmcreate(void);
 void            uvminit(pagetable_t, uchar *, uint);
@@ -179,6 +179,9 @@ int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
 int             my_vmprint(pagetable_t pagetable);  // 打印页表内容函数声明
+void            my_kvm_map_pagetable(pagetable_t);
+pagetable_t     my_kvminit_newpgtbl(void);  //创建一个页表，并初始化映射，返回这个页表
+void            my_kvm_free_kernelpgtbl(pagetable_t); // 递归释放一个内核页表中的所有映射，但不释放其指向的物理页
 
 // plic.c
 void            plicinit(void);

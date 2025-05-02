@@ -22,24 +22,33 @@ static void freeproc(struct proc *p);
 extern char trampoline[]; // trampoline.S
 
 // initialize the proc table at boot time.
+// 原代码为每个进程分配了一页物理内存作为内核栈(在共享空间中)
+// 现在每一个内核进程都有自己独立的内核页表，
+//  所以可以把每个处于内核态进程的内核栈映射到各自内核页表的固定位置(不同页表的同一逻辑地址指向不同位置)
+// 因此把原代码部分注释掉
 void
 procinit(void)
 {
   struct proc *p;
   
+  // 此处使用 initlock 初始化一个全局锁 pid_lock，用来保护分配 nextpid 的全局计数器，防止并发修改造成错误。
   initlock(&pid_lock, "nextpid");
   for(p = proc; p < &proc[NPROC]; p++) {
+      // 每个进程结构体中都有自己的锁 p->lock，用来保证进程内部状态在多线程或中断情况下的一致性。初始化时给这个锁设置名称为 "proc"。
       initlock(&p->lock, "proc");
 
       // Allocate a page for the process's kernel stack.
       // Map it high in memory, followed by an invalid
       // guard page.
-      char *pa = kalloc();
-      if(pa == 0)
-        panic("kalloc");
-      uint64 va = KSTACK((int) (p - proc));
-      kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-      p->kstack = va;
+
+      // char *pa = kalloc();
+      // if(pa == 0)
+      //   panic("kalloc");
+      // uint64 va = KSTACK((int) (p - proc));
+      // kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+      // p->kstack = va;
+
+      // 注释掉上面的代码(为所有进程预分配内核栈的代码)，变为创建进程的时候再创建内核栈
   }
   kvminithart();
 }
@@ -121,6 +130,20 @@ found:
     return 0;
   }
 
+  // 为新进程创建独立的内核页表，并将内核所需要的各种映射添加到新页表上
+  p->my_kernelpgtbl = my_kvminit_newpgtbl();
+
+  // 分配一个物理页，作为新进程的内核栈使用
+  char* pa = kalloc();
+  // 如果分配物理页失败(返回0)，则调用 panic("kallo") 来报告严重错误，并中断后续流程
+  if (pa == 0)
+    panic("kallo");
+  uint64 va = KSTACK((int)0);   //将内核栈映射到固定的逻辑地址上
+  kvmmap(p->my_kernelpgtbl, va, (uint64)pa, PGSIZE, PTE_R | PTE_W); //建立虚拟地址到物理地址的映射
+  p->kstack = va;   // 记录内核栈的虚拟地址，即将计算出的虚拟地址 va 记录在进程结构体 p 的 kstack 成员里。
+                    // 这样，在后续的进程执行或上下文切换时，系统可以通过这个地址找到对应的内核栈。
+
+
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -149,7 +172,23 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
-  p->state = UNUSED;
+
+  // 释放进程的内核栈
+  void* kstack_pa = (void*)kvmpa(p->my_kernelpgtbl, p->kstack);
+  kfree(kstack_pa);
+  p->kstack = 0;
+
+  // 不能使用 proc_freepagetable释放页表，因为其不仅会释放页表本身，还会把页表内所有的叶节点对应的物理页也释放掉
+  // 这会导致内核态运行所需的关键物理页被释放，造成内核崩溃
+  // eg: 内核的代码、数据或栈，它们虽然在页表中有记录，但这些页是内核运行必不可少的。如果不小心释放了这些页，内核会找不到它们，从而导致系统崩溃。
+  // 而且有些物理页的资源不止这一个进程在用，有可能同一个物理资源被映射到不同进程的内核页表了
+
+  // 递归释放进程独享页表，释放页表本身所占用的空间，但不释放页表指向的物理页
+  my_kvm_free_kernelpgtbl(p->my_kernelpgtbl);
+  p->my_kernelpgtbl = 0;  // 表示该进程不再持有一个有效的内核页表
+
+
+  p->state = UNUSED;  // 将进程状态设置为 UNUSED，供内核管理后续分配新进程时重用这些资源
 }
 
 // Create a user page table for a given process,
@@ -473,7 +512,25 @@ scheduler(void)
         // before jumping back to us.
         p->state = RUNNING;
         c->proc = p;
+
+        // 在调度器将CPU交给进程执行之前，加载进程的内核页到SATP寄存器 (SATP: 用来保存当前使用的页表基地址以及翻译模式)
+        // 切换到该进程对应的内核页表（而不是像以前一样继续用全局的内核进程页表）
+        //  w_satp() 函数则将MAKE_SATP转换后符合SATP格式的数据写入 SATP 寄存器，
+        //  从而告知 CPU 接下来的内存访问都要用这个新的页表进行地址转换。
+        w_satp(MAKE_SATP(p->my_kernelpgtbl));
+        sfence_vma();   // 清除快表缓存，刷新TLB缓存，以确保地址转换表的更改生效
+        // TLB 是一个用来缓存页表条目的硬件缓存，加速地址转换
+        // 当页表发生变化后（例如切换到新进程的内核页表后），TLB 中有可能还保留着旧的映射记录，从而导致地址翻译继续使用过期的映射，所以要刷新
+
+        // 调度，执行进程
+        // swtch: 保存当前 CPU 上下文（寄存器、程序计数器等）到调度器或 CPU 数据结构（这里是 &c->context），
+        //  并加载新进程的保存的上下文（p->context），使得 CPU 开始执行该进程的代码
         swtch(&c->context, &p->context);
+
+        // 切换回全局内核页表
+        //  当进程执行时，CPU 是基于新进程自己分配的内核页表来运行的
+        //  但一旦上下文切换结束，需要恢复为全局或默认的内核页表供内核继续管理其他任务或调度使用。
+        kvminithart();
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
