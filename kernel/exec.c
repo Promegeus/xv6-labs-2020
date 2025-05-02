@@ -116,6 +116,12 @@ exec(char *path, char **argv)
   p->trapframe->sp = sp; // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);
 
+  // 在特定进程(pid 为 1)中，在 exec 调用返回之前，输出其页表内容
+  if (p->pid == 1)
+  {
+    my_vmprint(p->pagetable); // exec返回之前打印页表
+  }
+
   return argc; // this ends up in a0, the first argument to main(argc, argv)
 
  bad:

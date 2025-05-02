@@ -440,3 +440,45 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+
+// 递归打印页表（在Sv39模式下，页表是一个三级树形结构）
+// pagetable_t 指向当前页表页的指针。一个页表页通常包含512个页表项(PTE)，存放在数组中
+// level 页表级数，即递归调用深度，最外层为0级
+int my_pgtblprint(pagetable_t pagetable, int level) 
+{
+  for(int i = 0; i < 512; i++)
+  {
+    pte_t pte = pagetable[i];   // 每个 pte(页表项) 存储了页表项相关的标志和地址信息。
+
+    // 检查当前页表项是否有效，PTE_V 是有效标志
+    if(pte & PTE_V)
+    {
+      // 打印缩进与页表项索引信息
+      printf("..");
+      for (int j = 0; j < level; j++)
+      {
+        printf("..");
+      }
+      // PTE2PA(pte) 是一个宏，用来从页表项中提取出 存储的物理地址
+      uint64 child = PTE2PA(pte);
+      printf("%d: pte %p pa %p\n", i, pte, child);
+
+      // 若没有读、写、执行权限，说明该页表项不是一个叶子映射，而是指向下一级页面的页表
+      // 如果不是叶节点，递归打印叶节点
+      if((pte & (PTE_R|PTE_W|PTE_X)) == 0)
+      {
+        my_pgtblprint((pagetable_t)child, level + 1);
+      }
+    }
+  }
+
+  return 0;
+}
+
+// 打印页表
+int my_vmprint(pagetable_t pagetable)
+{
+  printf("page table %p\n", pagetable);
+  return my_pgtblprint(pagetable, 0);
+}
