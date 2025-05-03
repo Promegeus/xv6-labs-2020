@@ -76,9 +76,28 @@ usertrap(void)
   if(p->killed)
     exit(-1);
 
-  // give up the CPU if this is a timer interrupt.
+  // give up the CPU if this is a timer interrupt.    //x
+  // if(which_dev == 2)
+  //   yield();
+
+  // 中断设备号 2 对应的是时钟中断。
   if(which_dev == 2)
+  {
+    if(p->my_alarm_interval != 0 && --p->my_alarm_ticks <= 0 && p->my_alarm_goingoff == 0)
+    {
+      // 是否设置了时钟 && 时钟倒计时是否结束 && 没有其他时钟正在运行
+      // 如果一个时钟到期的时候已有一个时钟处理函数正在运行
+      //    则会推迟到原处理函数运行完后的下一个tick才触发这次时钟
+
+      p->my_alarm_ticks = p->my_alarm_interval;         // 重置时钟倒计时
+      *p->my_alarm_trapframe = *p->trapframe;           // 保存当前进程心境真
+      p->trapframe->epc = (uint64)p->my_alarm_handler;  // 跳转到时钟回调函数 (trapframe中的epc 保存了下一条要执行的指令地址)
+                                                        //    意味着一旦中断返回至用户态时，就会从该地址开始执行 alarm 的处理逻辑
+      p->my_alarm_goingoff = 1;                         // 标记当前已有时钟正在运行
+    }
+
     yield();
+  }
 
   usertrapret();
 }
@@ -216,5 +235,25 @@ devintr()
   } else {
     return 0;
   }
+}
+
+
+// 设置进程中时钟的相关属性
+int my_sigalarm(int ticks, void(*handler)())
+{
+  struct proc* p = myproc();
+  p->my_alarm_interval = ticks;
+  p->my_alarm_handler = handler;
+  p->my_alarm_ticks = ticks;
+  return 0;
+}
+
+// 将进程恢复到alarm中断前的状态
+int my_sigreturn()
+{
+  struct proc* p = myproc();
+  *p->trapframe = *p->my_alarm_trapframe;
+  p->my_alarm_goingoff = 0;
+  return 0;
 }
 

@@ -90,7 +90,7 @@ allocpid() {
 // and return with p->lock held.
 // If there are no free procs, or a memory allocation fails, return 0.
 static struct proc*
-allocproc(void)
+allocproc(void)         // 初始化进程
 {
   struct proc *p;
 
@@ -113,6 +113,22 @@ found:
     return 0;
   }
 
+
+  // 给alarm_trapflame分配陷阱帧
+  if((p->my_alarm_trapframe = (struct trapframe *)kalloc()) == 0)
+  {
+    // 若内存分配失败
+    release(&p->lock);
+    return 0;
+  }
+
+  // 创建进程时初始化alarm相关
+  p->my_alarm_interval = 0;
+  p->my_alarm_handler = 0;
+  p->my_alarm_ticks = 0;
+  p->my_alarm_goingoff = 0;
+
+
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
@@ -134,13 +150,18 @@ found:
 // including user pages.
 // p->lock must be held.
 static void
-freeproc(struct proc *p)
+freeproc(struct proc *p)      // 释放进程中的资源
 {
   if(p->trapframe)
     kfree((void*)p->trapframe);
   p->trapframe = 0;
   if(p->pagetable)
     proc_freepagetable(p->pagetable, p->sz);
+
+  if(p->my_alarm_trapframe)
+    kfree((void*)p->my_alarm_trapframe);
+  p->my_alarm_trapframe = 0;
+
   p->pagetable = 0;
   p->sz = 0;
   p->pid = 0;
@@ -149,6 +170,12 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+
+  p->my_alarm_interval = 0;
+  p->my_alarm_handler = 0;
+  p->my_alarm_ticks = 0;
+  p->my_alarm_goingoff = 0;
+
   p->state = UNUSED;
 }
 

@@ -146,6 +146,8 @@ void            trapinit(void);
 void            trapinithart(void);
 extern struct spinlock tickslock;
 void            usertrapret(void);
+int             my_sigalarm(int, void(*)());    // 设置进程中时钟的相关属性
+int             my_sigreturn();                 // 将进程恢复到alarm中断前的状态
 
 // uart.c
 void            uartinit(void);

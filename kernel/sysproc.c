@@ -97,3 +97,22 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+
+// 该函数读出用户传递的2个参数，设置当前进程的定时器。当经过指定的tick数（时钟中断计数）后，内核将调用用户指定的回调函数。
+uint64 sys_sigalarm(void)
+{
+  int n;      // 存放用户传入的 tick 数，即经过 n 个时钟中断后触发用户回调
+  uint64 fn;  // 存放用户传入的回调函数地址 
+  if (argint(0, &n) < 0)   // 获取第一个参数 (用户栈中取出位于第0个位置的参数，并写入 n)
+    return -1;
+  if (argaddr(1, &fn) < 0)   // 获取第二个参数
+    return -1;
+
+  return my_sigalarm(n, (void(*)())(fn));   // 将 fn 用 (void ()()) 强制转换为指向无返回值、参数未明确指定的函数指针
+}
+
+uint64 sys_sigreturn(void)
+{
+  return my_sigreturn();
+}
