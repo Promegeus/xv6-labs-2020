@@ -320,6 +320,19 @@ sfence_vma()
 }
 
 
+
+// 获取当前函数的 fp (frame point，指向当前栈帧的开始地址)
+// 使用 RISC-V 指令mv 从 s0寄存器中提取当前的栈帧指针，返回给调用者
+static inline uint64
+r_fp()
+{
+  uint64 x;
+  asm volatile("mv %0, s0" : "=r" (x));
+  return x;
+}
+
+
+
 #define PGSIZE 4096 // bytes per page
 #define PGSHIFT 12  // bits of offset within a page
 

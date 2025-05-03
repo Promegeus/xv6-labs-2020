@@ -80,6 +80,7 @@ int             pipewrite(struct pipe*, uint64, int);
 void            printf(char*, ...);
 void            panic(char*) __attribute__((noreturn));
 void            printfinit(void);
+void            my_backtrace(void);     // 遍历帧指针 打印函数地址
 
 // proc.c
 int             cpuid(void);

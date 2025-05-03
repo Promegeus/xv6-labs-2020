@@ -132,3 +132,19 @@ printfinit(void)
   initlock(&pr.lock, "pr");
   pr.locking = 1;
 }
+
+
+// 遍历帧指针 打印函数地址
+void my_backtrace()
+{
+  uint64 fp = r_fp();
+  printf("backtrace:\n");
+  // 当前帧指针fp是否在有效的页范围内
+  while (PGROUNDDOWN(fp) != PGROUNDUP(fp))  // XV6在内核中以页面对齐的地址为每个栈分配一个页面
+  {
+    // (栈从高地址往低地址生长)
+    uint64 ra = *(uint64*)(fp - 8); // return address 当前调用层应该返回到的地址
+    printf("%p\n", ra);
+    fp = *(uint64*)(fp - 16); // previous fp 上一层栈帧的fp(栈帧开始地址)
+  }
+}
