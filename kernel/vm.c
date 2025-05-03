@@ -51,6 +51,9 @@ kvminit()
   // // map the trampoline for trap entry/exit to
   // // the highest virtual address in the kernel.
   // kvmmap(TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+
+  // 全局内核页表仍需要映射 CLINT
+  kvmmap(kernel_pagetable, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
 }
 
 
@@ -80,7 +83,9 @@ void my_kvm_map_pagetable(pagetable_t pgtbl)
   kvmmap(pgtbl, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
 
   // CLINT
-  kvmmap(pgtbl, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+  //kvmmap(pgtbl, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+  // CLINT 仅在内核启动的时候需要用到，而用户进程在内核态中的操作并不需要用到该映射，
+  //  且该映射会与要map的程序内存冲突，所以在这里注释掉这个映射，把它加到全局内核页表的初始化函数里
 
   // PLIC
   kvmmap(pgtbl, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
@@ -465,23 +470,25 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 int
 copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
-  uint64 n, va0, pa0;
+  // uint64 n, va0, pa0;
 
-  while(len > 0){
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
-    n = PGSIZE - (srcva - va0);
-    if(n > len)
-      n = len;
-    memmove(dst, (void *)(pa0 + (srcva - va0)), n);
+  // while(len > 0){
+  //   va0 = PGROUNDDOWN(srcva);
+  //   pa0 = walkaddr(pagetable, va0);
+  //   if(pa0 == 0)
+  //     return -1;
+  //   n = PGSIZE - (srcva - va0);
+  //   if(n > len)
+  //     n = len;
+  //   memmove(dst, (void *)(pa0 + (srcva - va0)), n);
 
-    len -= n;
-    dst += n;
-    srcva = va0 + PGSIZE;
-  }
-  return 0;
+  //   len -= n;
+  //   dst += n;
+  //   srcva = va0 + PGSIZE;
+  // }
+  // return 0;
+
+  return copyin_new(pagetable, dst, srcva, len);
 }
 
 // Copy a null-terminated string from user to kernel.
@@ -491,40 +498,42 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 int
 copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 {
-  uint64 n, va0, pa0;
-  int got_null = 0;
+  // uint64 n, va0, pa0;
+  // int got_null = 0;
 
-  while(got_null == 0 && max > 0){
-    va0 = PGROUNDDOWN(srcva);
-    pa0 = walkaddr(pagetable, va0);
-    if(pa0 == 0)
-      return -1;
-    n = PGSIZE - (srcva - va0);
-    if(n > max)
-      n = max;
+  // while(got_null == 0 && max > 0){
+  //   va0 = PGROUNDDOWN(srcva);
+  //   pa0 = walkaddr(pagetable, va0);
+  //   if(pa0 == 0)
+  //     return -1;
+  //   n = PGSIZE - (srcva - va0);
+  //   if(n > max)
+  //     n = max;
 
-    char *p = (char *) (pa0 + (srcva - va0));
-    while(n > 0){
-      if(*p == '\0'){
-        *dst = '\0';
-        got_null = 1;
-        break;
-      } else {
-        *dst = *p;
-      }
-      --n;
-      --max;
-      p++;
-      dst++;
-    }
+  //   char *p = (char *) (pa0 + (srcva - va0));
+  //   while(n > 0){
+  //     if(*p == '\0'){
+  //       *dst = '\0';
+  //       got_null = 1;
+  //       break;
+  //     } else {
+  //       *dst = *p;
+  //     }
+  //     --n;
+  //     --max;
+  //     p++;
+  //     dst++;
+  //   }
 
-    srcva = va0 + PGSIZE;
-  }
-  if(got_null){
-    return 0;
-  } else {
-    return -1;
-  }
+  //   srcva = va0 + PGSIZE;
+  // }
+  // if(got_null){
+  //   return 0;
+  // } else {
+  //   return -1;
+  // }
+
+  return copyinstr_new(pagetable, dst, srcva, max);
 }
 
 
@@ -567,4 +576,72 @@ int my_vmprint(pagetable_t pagetable)
 {
   printf("page table %p\n", pagetable);
   return my_pgtblprint(pagetable, 0);
+}
+
+
+
+// 复制页表 函数
+// 将 src页表的一部分页映射关系拷贝到 dst页表中（只拷贝页表项，不拷贝实际的物理页内存）
+int
+my_kvmcopymappings(pagetable_t src, pagetable_t dst, uint64 start, uint64 sz)
+{
+  pte_t* pte;
+  uint64 pa, i;
+  uint flags;
+
+  // PGROUNDUP: 将一个地址向上取整到页边界，即将地址调整到下一个页的起始地址。防止重新映射已经映射的页，特别是在执行growproc操作时
+  for(i = PGROUNDUP(start); i < start+sz; i += PGSIZE)
+  {
+    // 调用 walk 函数在 src 页表中查找虚拟地址 i 对应的页表项。
+    // 如果没有找到，说明该地址应该已经有映射但未找到，程序会调用 panic()（通常是内核错误处理函数）中断运行。
+    if((pte = walk(src, i, 0)) == 0)
+      panic("kvmcopymappings: pte should exist");
+    // 检查页表项的有效位（PTE_V，valid）
+    if((*pte & PTE_V) == 0)
+      panic("kvmcopymappings: page not present");
+    // 通过 PTE2PA 宏（或函数）从页表项中获取实际的物理地址
+    pa = PTE2PA(*pte);
+
+    // & ~PTE_U 表示将用户（User）权限位清零，即将该页从用户空间设置为非用户页。
+    //  这是必要的，因为在 RISC-V 架构中，内核的页表通常不允许直接访问用户页，所以要移除用户权限。
+    // PTE_FLAGS(*pte) 用来获取页表项中的标志位，比如读、写、执行权限等。
+    flags = PTE_FLAGS(*pte) & ~PTE_U;
+
+    // 将取得的物理地址 pa 以大小为 PGSIZE 映射到目标页表 dst 的地址 i 上，使用的权限是 flags
+    // 如果 mappages 返回非0（即映射失败），则跳转到错误处理标签 err。
+    if (mappages(dst, i, PGSIZE, pa, flags) != 0)
+      goto err;
+  }
+
+ return 0;
+
+ err:
+  // 如果在中途遇到映射失败的情况，前面已经成功映射的页面需要被解除映射，以保持目标页表的整洁
+  // 反向解除从 PGROUNDUP(start) 开始，到当前 i（计算出映射了多少页）的所有映射，其第四个参数 0 表示这一步骤不需要释放物理内存。
+  uvmunmap(dst, PGROUNDUP(start), (i-PGROUNDUP(start))/PGSIZE, 0);
+  return -1;
+}
+
+
+// 缩减内存 函数
+// 与 uvdealloc功能类似，将映射的地址空间"缩小"到一个新大小 newsz，但不释放实际内存
+// 虚拟内存的映射只是一个地址转换表，程序取消其中一部分映射后，虽然那部分物理内存可能未被回收，但从程序地址空间的角度来看，已经不再使用这部分内存。
+// 返回值 表示缩减后的“内存”大小（即虚拟地址的上限）
+uint64  
+my_kvmdealloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz)
+{
+  // 如果新大小不比原来小，则直接返回oldsz
+  if(newsz >= oldsz)
+    return oldsz;
+  
+  // 如果向上对齐后的 newsz 小于向上对齐后的 oldsz，就说明在页粒度上有部分页已经被“超出”newsz范围，即需要取消这些页的映射。
+  if(PGROUNDUP(newsz) < PGROUNDUP(oldsz))
+  {
+    // 计算需要取消映射的页数量
+    int npages = (PGROUNDUP(oldsz) - PGROUNDUP(newsz)) / PGSIZE;  
+    // 从传入的页表 pagetable 中删除从地址 PGROUNDUP(newsz) 开始的连续 npages 个页的映射。
+    uvmunmap(pagetable, PGROUNDUP(newsz), npages, 0);
+  }
+
+  return newsz;
 }

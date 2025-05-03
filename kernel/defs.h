@@ -182,6 +182,12 @@ int             my_vmprint(pagetable_t pagetable);  // 打印页表内容函数�
 void            my_kvm_map_pagetable(pagetable_t);
 pagetable_t     my_kvminit_newpgtbl(void);  //创建一个页表，并初始化映射，返回这个页表
 void            my_kvm_free_kernelpgtbl(pagetable_t); // 递归释放一个内核页表中的所有映射，但不释放其指向的物理页
+int             my_kvmcopymappings(pagetable_t, pagetable_t, uint64, uint64);   // 将 src页表的一部分页映射关系拷贝到 dst页表中
+uint64          my_kvmdealloc(pagetable_t, uint64, uint64);    // 缩减内存，即缩减映射的地址空间
+
+// vmcopyin.c
+int             copyin_new(pagetable_t, char*, uint64, uint64);
+int             copyinstr_new(pagetable_t, char*, uint64, uint64);
 
 // plic.c
 void            plicinit(void);

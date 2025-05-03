@@ -260,6 +260,9 @@ userinit(void)
   uvminit(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
 
+  // 同步程序内存映射到进程内核页表中
+  my_kvmcopymappings(p->pagetable, p->my_kernelpgtbl, 0, p->sz);
+
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
   p->trapframe->sp = PGSIZE;  // user stack pointer
@@ -281,12 +284,25 @@ growproc(int n)
   struct proc *p = myproc();
 
   sz = p->sz;
-  if(n > 0){
-    if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
+  if(n > 0)
+  {
+    uint64 newsz;
+    if((newsz = uvmalloc(p->pagetable, sz, sz + n)) == 0) 
+    {
       return -1;
     }
-  } else if(n < 0){
-    sz = uvmdealloc(p->pagetable, sz, sz + n);
+    //内核页表中的映射同步扩大
+    if(my_kvmcopymappings(p->pagetable, p->my_kernelpgtbl, sz, n) != 0)
+    {
+      uvmdealloc(p->pagetable, newsz, sz);
+    }
+    sz = newsz;
+  } 
+  else if(n < 0)
+  {
+    uvmdealloc(p->pagetable, sz, sz + n);
+    // 内核页表中的映射同步缩小
+    sz = my_kvmdealloc(p->my_kernelpgtbl, sz, sz+n);
   }
   p->sz = sz;
   return 0;
@@ -307,7 +323,10 @@ fork(void)
   }
 
   // Copy user memory from parent to child.
-  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
+  //if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
+  // 加入调用 my_kvmcopymappings，将新进程用户页表映射 拷贝一份到新进程内核页表中
+  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0 ||
+      my_kvmcopymappings(np->pagetable, np->my_kernelpgtbl, 0, p->sz)<0){
     freeproc(np);
     release(&np->lock);
     return -1;
