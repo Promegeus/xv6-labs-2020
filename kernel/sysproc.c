@@ -47,8 +47,26 @@ sys_sbrk(void)
   if(argint(0, &n) < 0)
     return -1;
   addr = myproc()->sz;
-  if(growproc(n) < 0)
+
+  // 原sbrk(n)系统调用将进程的内存大小增加n个字节，然后返回新分配区域的开始部分（即旧的大小）。
+  // 为实现惰性分配，新的sbrk(n)应该只将进程的大小（myproc()->sz）增加n，然后返回旧的大小。它不应该分配内存
+
+  // if(growproc(n) < 0)    // 第一步：删除sbrk(n)系统调用中的页面分配代码
+  //   return -1;
+
+  struct proc* p = myproc();
+
+  if(n > 0)
+    p->sz += n;   // 惰性分配，仅改变sz大小(进程大小)，不分配内存，
+                  //  当需要用到这些物理内存时会触发页面错误，到时候再分配物理内存
+
+  //如果是减少内存，还是要马上执行，当然要检查减去内存后是否大于0
+  else if(p->sz + n > 0)
+    p->sz = uvmdealloc(p->pagetable, p->sz, p->sz+n);
+  else
     return -1;
+
+
   return addr;
 }
 

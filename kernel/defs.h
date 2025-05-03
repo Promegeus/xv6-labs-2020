@@ -171,7 +171,8 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
-
+int             my_uvmshouldallocate(uint64);    // 判断页面是否是之前惰性分配的，是的话返回1
+void            my_uvmlazyallocate(uint64);      // 给惰性分配的页面分配并映射物理地址
 // plic.c
 void            plicinit(void);
 void            plicinithart(void);

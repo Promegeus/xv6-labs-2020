@@ -50,7 +50,8 @@ usertrap(void)
   // save user program counter.
   p->trapframe->epc = r_sepc();
   
-  if(r_scause() == 8){
+  if(r_scause() == 8)
+  {
     // system call
 
     if(p->killed)
@@ -65,13 +66,60 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if((which_dev = devintr()) != 0){
+  } 
+  else if((which_dev = devintr()) != 0)
+  {
     // ok
-  } else {
+  } 
+
+  /*
+  // 惰性分配导致的缺页异常
+  else if (r_scause() == 13 || r_scause() == 15)  // 13、15分别表示是由load、store引起的页面错误
+  {
+    uint64 fault_va = r_stval();  // 获取引发缺页异常的虚拟地址
+    char* pa = 0;   //分配的物理地址
+    // 判断fault_va是否在进程栈空间中
+    if(PGROUNDUP(p->trapframe->sp)-1 < fault_va && fault_va < p->sz && (pa = kalloc()) != 0)
+    {
+      memset(pa, 0, PGSIZE);
+      // 物理内存映射
+      if(mappages(p->pagetable, PGROUNDDOWN(fault_va), PGSIZE, (uint64)pa, PTE_R|PTE_W|PTE_X|PTE_U) != 0)
+      {
+        // PGROUNDDOWN(fault_va)：将 fault_va 向下舍入到页边界，作为映射的起始虚拟地址。
+        // 如果 mappages 返回值不是 0，则表示映射失败，后续会打印错误信息，并释放该物理页
+        printf("lazy alloc: failed to map page\n");
+        kfree(pa);
+        p->killed = 1;
+      }
+    }
+  }
+  else 
+  {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;
   }
+  */
+
+  // 上面的else if 和 else 可合并为：
+  else
+  {
+    uint64 va = r_stval();  // 获取引发缺页异常的虚拟地址
+
+    // 若缺页异常，发生异常的地址进行过惰性分配
+    if((r_scause() == 13 || r_scause() == 15) && my_uvmshouldallocate(va))
+      my_uvmlazyallocate(va);
+
+    // 如果不是缺页异常，或者是在非惰性分配地址上发生的缺页异常，则抛出错误并杀死进程
+    else
+    {
+      printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
+      printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
+      p->killed = 1;
+    }
+  }
+
+
 
   if(p->killed)
     exit(-1);
