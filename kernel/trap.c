@@ -50,7 +50,8 @@ usertrap(void)
   // save user program counter.
   p->trapframe->epc = r_sepc();
   
-  if(r_scause() == 8){
+  if(r_scause() == 8)
+  {
     // system call
 
     if(p->killed)
@@ -65,9 +66,19 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if((which_dev = devintr()) != 0){
+  } 
+  else if((which_dev = devintr()) != 0)
+  {
     // ok
-  } else {
+  } 
+  else if(((r_scause() == 13)||(r_scause() == 15)) && my_uvmcheckcowpage(r_stval()))
+  {
+    // 发生页面错误，并且检测出错是写时复制机制导致的页面不可写，则执行写时复制
+    if(my_uvmcowcopy(r_stval()) == -1)
+      p->killed = 1;
+  }
+  else 
+  {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;

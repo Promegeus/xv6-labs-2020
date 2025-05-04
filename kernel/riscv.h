@@ -331,6 +331,8 @@ sfence_vma()
 #define PTE_W (1L << 2)
 #define PTE_X (1L << 3)
 #define PTE_U (1L << 4) // 1 -> user can access
+#define PTE_COW (1L << 8)   // 这个页是否为写时复制页
+                            // 页表项flag中，第8、9、10位均保留 给操作系统使用的位，可以做任意自定义用途
 
 // shift a physical address to the right place for a PTE.
 #define PA2PTE(pa) ((((uint64)pa) >> 12) << 10)

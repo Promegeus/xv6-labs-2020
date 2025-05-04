@@ -63,6 +63,8 @@ void            ramdiskrw(struct buf*);
 void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
+void            my_krefpage(void*);  // 物理页引用数+1
+void*           my_kcopy_n_deref(void*); // 写时复制一个新的物理地址返回
 
 // log.c
 void            initlog(int, struct superblock*);
@@ -171,6 +173,8 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
+int             my_uvmcheckcowpage(uint64); // 检查虚拟地址所在页是否为COW页
+int             my_uvmcowcopy(uint64);   // 写时复制
 
 // plic.c
 void            plicinit(void);
