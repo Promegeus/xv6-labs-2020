@@ -207,7 +207,7 @@ bget(uint dev, uint blockno)
 
   // 如果没有找到任何一个LRU-buf，表示没有空闲缓存块了
   if(!before_least)
-    panic("bget: no buffuers");
+    panic("bget: no buffers");
 
   b = before_least->next;   // b == LRU-buf
 
