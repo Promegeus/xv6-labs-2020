@@ -8,6 +8,10 @@
 #define NBUCKET 5
 #define NKEYS 100000
 
+// 声明一个线程锁
+//pthread_mutex_t lock;
+pthread_mutex_t lock[NBUCKET];  // 降低锁粒度，给每一个散列桶声明一把锁
+
 struct entry {
   int key;
   int value;
@@ -38,7 +42,13 @@ insert(int key, int value, struct entry **p, struct entry *n)
 static 
 void put(int key, int value)
 {
+  // 获取锁
+  //pthread_mutex_lock(&lock);
+
   int i = key % NBUCKET;
+
+  //执行 put 操作时，针对散列桶上锁
+  pthread_mutex_lock(&lock[i]);
 
   // is the key already present?
   struct entry *e = 0;
@@ -53,6 +63,9 @@ void put(int key, int value)
     // the new is new.
     insert(key, value, &table[i], table[i]);
   }
+
+  // 释放锁
+  pthread_mutex_unlock(&lock[i]);
 }
 
 static struct entry*
@@ -102,6 +115,8 @@ main(int argc, char *argv[])
   pthread_t *tha;
   void *value;
   double t1, t0;
+  //初始化锁
+  //pthread_mutex_init(&lock, NULL);
 
   if (argc < 2) {
     fprintf(stderr, "Usage: %s nthreads\n", argv[0]);
@@ -114,6 +129,14 @@ main(int argc, char *argv[])
   for (int i = 0; i < NKEYS; i++) {
     keys[i] = random();
   }
+
+
+  // 在执行put前初始化锁
+  for (int i = 0; i < NBUCKET; i++)
+  {
+    pthread_mutex_init(&lock[i], NULL);
+  }
+
 
   //
   // first the puts
