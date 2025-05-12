@@ -297,19 +297,50 @@ sys_open(void)
 
   begin_op();
 
-  if(omode & O_CREATE){
+  if(omode & O_CREATE)
+  {
     ip = create(path, T_FILE, 0, 0);
     if(ip == 0){
       end_op();
       return -1;
     }
-  } else {
-    if((ip = namei(path)) == 0){
-      end_op();
-      return -1;
+  } 
+  else 
+  {
+    int symlink_depth = 0;
+    while(1)
+    {
+      if((ip = namei(path)) == 0)   // 解析路径，获取对应的inode
+      {
+        end_op();
+        return -1;
+      }
+
+      ilock(ip);
+      // 如果当前仍是软连接，就继续循环，直至找到真正的文件，或超过一定的链接深度
+      if(ip->type == T_SYMLINK && (omode & O_NOFOLLOW) == 0)
+      {
+        // 链接深度超过10层就退出
+        if(++symlink_depth > 10)
+        {
+          iunlockput(ip);
+          end_op();
+          return -1;
+        }
+        if(readi(ip, 0, (uint64)path, 0, MAXPATH) < 0)  // 获取链接的目标路径
+        {
+          iunlockput(ip);
+          end_op();
+          return -1;
+        }
+        iunlockput(ip);
+      }
+      else
+        break;
     }
-    ilock(ip);
-    if(ip->type == T_DIR && omode != O_RDONLY){
+    
+    if(ip->type == T_DIR && omode != O_RDONLY)
+    {
       iunlockput(ip);
       end_op();
       return -1;
@@ -482,5 +513,40 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+
+// 软连接
+uint64
+sys_symlink(void)
+{
+  struct inode* ip;
+  char target[MAXPATH], path[MAXPATH];    // MAXPATH == 128
+  // 传入两个字符串参数
+  // argstr(index, buffer, length) 会从用户调用系统调用时传递的参数中, 将第 index 个字符串拷贝到 buffer 中。如果拷贝失败则返回负数
+  if(argstr(0, target, MAXPATH)<0 || argstr(1, path, MAXPATH)<0)
+    return -1;
+
+    // 开始一个文件系统的原子操作事务
+  begin_op();
+
+  // 创建一个新的inod，类型为T_SYMLINK，指向path文件
+  ip = create(path, T_SYMLINK, 0, 0);
+  if(ip == 0)
+  {
+    end_op();
+    return -1;
+  }
+
+  if(writei(ip, 0, (uint64)target, 0, strlen(target)) < 0)  // 将target路径写入inode
+  {
+    end_op();
+    return -1;
+  }
+
+  iunlockput(ip);
+  end_op(); //  结束文件系统的操作事务
+
   return 0;
 }
